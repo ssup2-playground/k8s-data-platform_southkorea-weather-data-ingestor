@@ -1,3 +1,4 @@
+requests==2.31.0
 boto3==1.28.60
 pandas==2.1.1
 pyarrow==13.0.0
