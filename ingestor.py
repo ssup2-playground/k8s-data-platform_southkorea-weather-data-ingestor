@@ -1,6 +1,7 @@
 import os
 import io
 import requests
+from requests.adapters import HTTPAdapter, Retry
 
 import boto3
 import pandas as pd
@@ -195,13 +196,19 @@ def main():
     # Get data
     branch_id_response = {}
     for branch_id in branch_id_name:
+        # Set retry policy for request
+        session = requests.Session()
+        request_retry = Retry(total=5, backoff_factor=1)
+        session.mount("http://", HTTPAdapter(max_retries=request_retry))
+
         # Request date
-        response = requests.get(
+        response = session.get(
             DATA_URL,
             params=get_request_params(data_key, branch_id, request_date, request_hour),
             timeout=300,
         )
-        print("response : " + response.content)
+        print("--- Branch ID : {0} / Status Code : {1} ---".format(branch_id, response.status_code))
+        print(response.content)
 
         # Check request
         response.raise_for_status()
@@ -270,7 +277,8 @@ def main():
         merged_hourly_data["dew_point"].append(dew_point)
 
     # Show dataframe
-    print("merged data : " + merged_hourly_data)
+    print("--- Merged Data ---")
+    print(merged_hourly_data)
 
     # Write to S3 with parquet format
     merged_data_dataframe = pd.DataFrame(merged_hourly_data)
