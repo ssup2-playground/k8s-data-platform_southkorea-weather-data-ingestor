@@ -189,7 +189,7 @@ def main():
     response = aws_s3_client.list_objects_v2(Bucket=aws_s3_bucket,
                               Prefix=get_s3_key_name(aws_s3_directory, request_date, request_hour))
     if "Contents" in response:
-        print("already exist")
+        print("data already exists in S3")
         return 0
 
     # Get data
@@ -199,13 +199,16 @@ def main():
         response = requests.get(
             DATA_URL,
             params=get_request_params(data_key, branch_id, request_date, request_hour),
-            timeout=60,
+            timeout=300,
         )
+        print("response : " + response.content)
 
         # Check request
         response.raise_for_status()
         branch_id_response[branch_id] = response.json()
-        if branch_id_response[branch_id]["response"]["header"]["resultCode"] != "00":
+        result_code = branch_id_response[branch_id]["response"]["header"]["resultCode"]
+        if result_code != "00":
+            print("result code : " + result_code)
             raise ValueError("wrong result code")
 
     # Merge hourly data & save to AWS S3 with parquet
@@ -267,7 +270,7 @@ def main():
         merged_hourly_data["dew_point"].append(dew_point)
 
     # Show dataframe
-    print(merged_hourly_data)
+    print("merged data : " + merged_hourly_data)
 
     # Write to S3 with parquet format
     merged_data_dataframe = pd.DataFrame(merged_hourly_data)
