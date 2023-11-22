@@ -1,7 +1,8 @@
 import os
 import io
+import time
+import itertools
 import requests
-from requests.adapters import HTTPAdapter, Retry
 
 import boto3
 import pandas as pd
@@ -196,27 +197,30 @@ def main():
     # Get data
     branch_id_response = {}
     for branch_id in branch_id_name:
-        # Set retry policy for request
-        session = requests.Session()
-        request_retry = Retry(total=5, backoff_factor=1)
-        session.mount("http://", HTTPAdapter(max_retries=request_retry))
+        # Request data and retry if failed
+        for i in itertools.count(start=0):
+            response = requests.get(
+                DATA_URL,
+                params=get_request_params(data_key, branch_id, request_date, request_hour),
+                timeout=300,
+            )
+            print("--- Branch ID : {0} / Status Code : {1} ---".format(branch_id, response.status_code))
+            print(response.headers)
+            print(response.content)
 
-        # Request date
-        response = session.get(
-            DATA_URL,
-            params=get_request_params(data_key, branch_id, request_date, request_hour),
-            timeout=300,
-        )
-        print("--- Branch ID : {0} / Status Code : {1} ---".format(branch_id, response.status_code))
-        print(response.content)
+            # Check response
+            if (response.status_code == 200 and
+                response.headers.get("content-type") == "application/json;charset=UTF-8" and
+                response.json()["response"]["header"]["resultCode"] == "00"):
+                branch_id_response[branch_id] = response.json()
+                break
 
-        # Check request
-        response.raise_for_status()
-        branch_id_response[branch_id] = response.json()
-        result_code = branch_id_response[branch_id]["response"]["header"]["resultCode"]
-        if result_code != "00":
-            print("result code : " + result_code)
-            raise ValueError("wrong result code")
+            # Retry 5 times with sleep 5 seconds
+            if i == 5:
+                raise ValueError("failed to get data")
+            else:
+                print("retry : {0}".format(i + 1))
+                time.sleep(5)
 
     # Merge hourly data & save to AWS S3 with parquet
     # Init merged dict
