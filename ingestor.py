@@ -167,6 +167,8 @@ def convert_string_float(string: str):
 
 def convert_wd_code_name(code: str):
     '''Convert wind direction code to name'''
+    if str == "":
+        return "NONE"
     return wind_direction_code_name[int(code)]
 
 ## Main
