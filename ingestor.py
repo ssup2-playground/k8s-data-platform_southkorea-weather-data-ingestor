@@ -204,7 +204,7 @@ def main():
             response = requests.get(
                 DATA_URL,
                 params=get_request_params(data_key, branch_id, request_date, request_hour),
-                timeout=300,
+                timeout=600,
             )
             print("--- Branch ID : {0} / Status Code : {1} ---".format(branch_id, response.status_code))
             print(response.headers)
