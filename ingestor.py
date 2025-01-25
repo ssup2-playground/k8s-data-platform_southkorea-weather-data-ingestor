@@ -4,7 +4,7 @@ import time
 import itertools
 import requests
 
-import boto3
+from minio import Minio
 import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
@@ -149,8 +149,8 @@ def get_request_params(data_key: str, branch_id:str, date: str, hour: str):
     }
     return request_params
 
-def get_s3_key_name(directory: str, date: str, hour: str):
-    '''Get s3 key name'''
+def get_object_name(directory: str, date: str, hour: str):
+    '''Get object name'''
     return directory + "/" + date[0:4] + "/" + date[4:6] + "/" + date[6:8] + "/" + hour.zfill(2) + ".parquet"
 
 def convert_string_int(string: str):
@@ -174,27 +174,30 @@ def convert_wd_code_name(code: str):
 ## Main
 def main():
     # Check envs
-    aws_region = str(os.getenv("AWS_REGION"))
-    aws_key_access = str(os.getenv("AWS_KEY_ACCESS"))
-    aws_key_secret = str(os.getenv("AWS_KEY_SECRET"))
-    aws_s3_bucket = str(os.getenv("AWS_S3_BUCKET"))
-    aws_s3_directory = str(os.getenv("AWS_S3_DIRECTORY"))
     data_key = str(os.getenv("DATA_KEY"))
+
+    minio_endpoint = str(os.getenv("MINIO_ENDPOINT"))
+    minio_access_key = str(os.getenv("MINIO_ACCESS_KEY"))
+    minio_secret_key = str(os.getenv("MINIO_SECRET_KEY")) 
+    minio_bucket = str(os.getenv("MINIO_BUCKET"))
+    minio_directory = str(os.getenv("MINIO_DIRECTORY"))
+
     request_date = str(os.getenv("REQUEST_DATE"))
     request_hour = str(os.getenv("REQUEST_HOUR"))
+    object_name = get_object_name(minio_directory, request_date, request_hour)
 
-    # Init boto3 client
-    aws_s3_client = boto3.client('s3',
-                      aws_access_key_id=aws_key_access,
-                      aws_secret_access_key=aws_key_secret,
-                      region_name=aws_region)
+    # Init MinIO client
+    minio_client = Minio(minio_endpoint, minio_access_key, minio_secret_key, secure=False)
 
-    # Check if data exists in AWS S3
-    response = aws_s3_client.list_objects_v2(Bucket=aws_s3_bucket,
-                              Prefix=get_s3_key_name(aws_s3_directory, request_date, request_hour))
-    if "Contents" in response:
-        print("data already exists in S3")
+    # Check if data exists in MinIO
+    try:
+        minio_client.stat_object(bucket_name=minio_bucket, object_name=object_name)
+        print("data already exists in minio") 
         return 0
+    except Exception as e:
+        if "NoSuchKey" not in str(e):
+            print("Unexpected error : {0}".format(e))
+            return 1
 
     # Get data
     branch_id_response = {}
@@ -224,7 +227,7 @@ def main():
                 print("retry : {0}".format(i + 1))
                 time.sleep(5)
 
-    # Merge hourly data & save to AWS S3 with parquet
+    # Merge hourly data & save to MinIO with parquet format
     # Init merged dict
     merged_hourly_data = {
         "branch_name": [],
@@ -286,14 +289,16 @@ def main():
     print("--- Merged Data ---")
     print(merged_hourly_data)
 
-    # Write to S3 with parquet format
+    # Write to MinIO with parquet format
     merged_data_dataframe = pd.DataFrame(merged_hourly_data)
     merged_data_table = pa.Table.from_pandas(merged_data_dataframe)
     merged_data_buffer = io.BytesIO()
     pq.write_table(merged_data_table, merged_data_buffer)
-    aws_s3_client.put_object(Bucket=aws_s3_bucket,
-                             Key=get_s3_key_name(aws_s3_directory, request_date, request_hour),
-                             Body=merged_data_buffer.getvalue())
+    merged_data_buffer.seek(0)
+    minio_client.put_object(bucket_name=minio_bucket,
+                            object_name=object_name,
+                            data=merged_data_buffer,
+                            length=merged_data_buffer.getbuffer().nbytes)
 
 if __name__ == "__main__":
     main()
